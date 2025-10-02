@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polar HRV Monitor</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            color: #333;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        
+        .status.disconnected {
+            background: #fee;
+            color: #c33;
+        }
+        
+        .status.connecting {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+        
+        .status.connected {
+            background: #dfe6e9;
+            color: #00b894;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 10px 0;
+        }
+        
+        button.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        button.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button.danger {
+            background: #d63031;
+            color: white;
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            color: #636e72;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2d3436;
+        }
+        
+        .metric-unit {
+            font-size: 14px;
+            color: #636e72;
+            margin-left: 5px;
+        }
+        
+        .session-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .session-info p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #636e72;
+        }
+        
+        .log {
+            background: #2d3436;
+            color: #dfe6e9;
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        
+        .log-entry {
+            margin: 3px 0;
+            padding: 3px 0;
+            border-bottom: 1px solid #636e72;
+        }
+        
+        .warning {
+            background: #ffeaa7;
+            color: #d63031;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🫀 Polar HRV Monitor</h1>
+        <p style="color: #636e72; margin-bottom: 20px;">Нейроассессмент центр</p>
+        
+        <div id="status" class="status disconnected">
+            ❌ Устройство не подключено
+        </div>
+        
+        <div class="warning" id="browserWarning" style="display: none;">
+            ⚠️ Используйте Chrome или Edge для подключения к устройству
+        </div>
+        
+        <button id="connectBtn" class="primary" onclick="connectDevice()">
+            🔗 Подключить Polar H10
+        </button>
+        
+        <button id="startBtn" class="primary" onclick="startMeasurement()" disabled>
+            ▶️ Начать замер
+        </button>
+        
+        <button id="stopBtn" class="danger" onclick="stopMeasurement()" style="display: none;">
+            ⏹️ Остановить замер
+        </button>
+        
+        <div class="session-info" id="sessionInfo" style="display: none;">
+            <p><strong>ID сессии:</strong> <span id="sessionId">-</span></p>
+            <p><strong>Длительность:</strong> <span id="duration">00:00</span></p>
+            <p><strong>Собрано данных:</strong> <span id="dataPoints">0</span> точек</p>
+        </div>
+        
+        <div class="metrics" id="metrics" style="display: none;">
+            <div class="metric-card">
+                <div class="metric-label">ЧСС</div>
+                <div class="metric-value">
+                    <span id="hr">-</span>
+                    <span class="metric-unit">уд/мин</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">RR</div>
+                <div class="metric-value">
+                    <span id="rr">-</span>
+                    <span class="metric-unit">мс</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">RMSSD</div>
+                <div class="metric-value">
+                    <span id="rmssd">-</span>
+                    <span class="metric-unit">мс</span>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">SDNN</div>
+                <div class="metric-value">
+                    <span id="sdnn">-</span>
+                    <span class="metric-unit">мс</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        // Проверка Telegram WebApp
+        let tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.ready();
+            tg.expand();
+        }
+        
+        // Проверка поддержки Bluetooth
+        if (!navigator.bluetooth) {
+            document.getElementById('browserWarning').style.display = 'block';
+            document.getElementById('connectBtn').disabled = true;
+        }
+        
+        // Глобальные переменные
+        let device = null;
+        let hrCharacteristic = null;
+        let rrIntervals = [];
+        let sessionId = null;
+        let sessionStartTime = null;
+        let measurementInterval = null;
+        let dataPoints = 0;
+        
+        // UUID для Polar H10
+        const HEART_RATE_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb';
+        const HEART_RATE_MEASUREMENT = '00002a37-0000-1000-8000-00805f9b34fb';
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString('ru-RU');
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+            console.log(message);
+        }
+        
+        function updateStatus(text, className) {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.className = `status ${className}`;
+        }
+        
+        async function connectDevice() {
+            try {
+                updateStatus('🔄 Поиск устройства...', 'connecting');
+                log('Запуск поиска Bluetooth устройств...');
+                
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { services: [HEART_RATE_SERVICE] },
+                        { namePrefix: 'Polar H10' }
+                    ],
+                    optionalServices: [HEART_RATE_SERVICE]
+                });
+                
+                log(`Найдено устройство: ${device.name}`);
+                
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                
+                const server = await device.gatt.connect();
+                log('Подключено к GATT серверу');
+                
+                const service = await server.getPrimaryService(HEART_RATE_SERVICE);
+                log('Получен сервис Heart Rate');
+                
+                hrCharacteristic = await service.getCharacteristic(HEART_RATE_MEASUREMENT);
+                log('Получена характеристика HR Measurement');
+                
+                updateStatus('✅ Устройство подключено', 'connected');
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('connectBtn').disabled = true;
+                
+            } catch (error) {
+                log(`Ошибка подключения: ${error.message}`);
+                updateStatus('❌ Ошибка подключения', 'disconnected');
+                console.error(error);
+            }
+        }
+        
+        function onDisconnected() {
+            log('Устройство отключено');
+            updateStatus('❌ Устройство отключено', 'disconnected');
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('connectBtn').disabled = false;
+            stopMeasurement();
+        }
+        
+        async function startMeasurement() {
+            try {
+                sessionId = `session_${Date.now()}`;
+                sessionStartTime = Date.now();
+                rrIntervals = [];
+                dataPoints = 0;
+                
+                document.getElementById('sessionInfo').style.display = 'block';
+                document.getElementById('metrics').style.display = 'grid';
+                document.getElementById('sessionId').textContent = sessionId;
+                
+                log(`Начата сессия: ${sessionId}`);
+                
+                await hrCharacteristic.startNotifications();
+                hrCharacteristic.addEventListener('characteristicvaluechanged', handleHRData);
+                
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'block';
+                
+                // Обновление длительности каждую секунду
+                measurementInterval = setInterval(updateDuration, 1000);
+                
+                log('Начат сбор данных HRV');
+                
+            } catch (error) {
+                log(`Ошибка начала замера: ${error.message}`);
+                console.error(error);
+            }
+        }
+        
+        function handleHRData(event) {
+            const value = event.target.value;
+            const flags = value.getUint8(0);
+            
+            // Проверка формата данных (16-bit или 8-bit)
+            const hrFormat = flags & 0x01;
+            let hr;
+            let offset = 1;
+            
+            if (hrFormat === 0) {
+                hr = value.getUint8(offset);
+                offset += 1;
+            } else {
+                hr = value.getUint16(offset, true);
+                offset += 2;
+            }
+            
+            // Обновление HR
+            document.getElementById('hr').textContent = hr;
+            
+            // Проверка наличия RR интервалов
+            const rrPresent = flags & 0x10;
+            
+            if (rrPresent) {
+                const rrCount = (value.byteLength - offset) / 2;
+                
+                for (let i = 0; i < rrCount; i++) {
+                    const rr = value.getUint16(offset, true);
+                    offset += 2;
+                    
+                    // RR в миллисекундах (разрешение 1/1024 секунды)
+                    const rrMs = Math.round((rr / 1024) * 1000);
+                    
+                    if (rrMs > 300 && rrMs < 2000) { // Фильтр аномальных значений
+                        rrIntervals.push(rrMs);
+                        dataPoints++;
+                    }
+                }
+                
+                // Обновление метрик каждые 10 точек данных
+                if (rrIntervals.length >= 10) {
+                    calculateMetrics();
+                }
+            }
+            
+            document.getElementById('dataPoints').textContent = dataPoints;
+        }
+        
+        function calculateMetrics() {
+            if (rrIntervals.length < 10) return;
+            
+            // Берем последние 30 интервалов для расчета
+            const recentRR = rrIntervals.slice(-30);
+            
+            // Средний RR
+            const meanRR = recentRR.reduce((a, b) => a + b, 0) / recentRR.length;
+            document.getElementById('rr').textContent = Math.round(meanRR);
+            
+            // RMSSD
+            let sumSquaredDiff = 0;
+            for (let i = 1; i < recentRR.length; i++) {
+                const diff = recentRR[i] - recentRR[i - 1];
+                sumSquaredDiff += diff * diff;
+            }
+            const rmssd = Math.sqrt(sumSquaredDiff / (recentRR.length - 1));
+            document.getElementById('rmssd').textContent = Math.round(rmssd);
+            
+            // SDNN
+            const variance = recentRR.reduce((acc, val) => {
+                return acc + Math.pow(val - meanRR, 2);
+            }, 0) / recentRR.length;
+            const sdnn = Math.sqrt(variance);
+            document.getElementById('sdnn').textContent = Math.round(sdnn);
+            
+            // Отправка данных в Telegram Bot (если доступен)
+            if (tg && dataPoints % 50 === 0) { // Каждые 50 точек
+                sendDataToBot({
+                    sessionId,
+                    timestamp: Date.now(),
+                    hr: Math.round(60000 / meanRR),
+                    meanRR: Math.round(meanRR),
+                    rmssd: Math.round(rmssd),
+                    sdnn: Math.round(sdnn),
+                    rrIntervals: recentRR
+                });
+            }
+        }
+        
+        function updateDuration() {
+            if (!sessionStartTime) return;
+            
+            const elapsed = Date.now() - sessionStartTime;
+            const minutes = Math.floor(elapsed / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            
+            document.getElementById('duration').textContent = 
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+        
+        async function stopMeasurement() {
+            if (hrCharacteristic) {
+                try {
+                    await hrCharacteristic.stopNotifications();
+                    hrCharacteristic.removeEventListener('characteristicvaluechanged', handleHRData);
+                } catch (error) {
+                    log(`Ошибка остановки: ${error.message}`);
+                }
+            }
+            
+            if (measurementInterval) {
+                clearInterval(measurementInterval);
+            }
+            
+            // Финальная отправка данных
+            if (tg && rrIntervals.length > 0) {
+                const recentRR = rrIntervals.slice(-30);
+                const meanRR = recentRR.reduce((a, b) => a + b, 0) / recentRR.length;
+                
+                let sumSquaredDiff = 0;
+                for (let i = 1; i < recentRR.length; i++) {
+                    const diff = recentRR[i] - recentRR[i - 1];
+                    sumSquaredDiff += diff * diff;
+                }
+                const rmssd = Math.sqrt(sumSquaredDiff / (recentRR.length - 1));
+                
+                const variance = recentRR.reduce((acc, val) => {
+                    return acc + Math.pow(val - meanRR, 2);
+                }, 0) / recentRR.length;
+                const sdnn = Math.sqrt(variance);
+                
+                sendDataToBot({
+                    sessionId,
+                    timestamp: Date.now(),
+                    duration: Date.now() - sessionStartTime,
+                    totalDataPoints: dataPoints,
+                    hr: Math.round(60000 / meanRR),
+                    meanRR: Math.round(meanRR),
+                    rmssd: Math.round(rmssd),
+                    sdnn: Math.round(sdnn),
+                    allRRIntervals: rrIntervals,
+                    sessionComplete: true
+                });
+            }
+            
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            
+            log(`Сессия завершена. Собрано ${dataPoints} точек данных`);
+        }
+        
+        function sendDataToBot(data) {
+            if (!tg) return;
+            
+            try {
+                // Отправка данных через Telegram WebApp API
+                tg.sendData(JSON.stringify(data));
+                log('Данные отправлены в бот');
+            } catch (error) {
+                log(`Ошибка отправки в бот: ${error.message}`);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
