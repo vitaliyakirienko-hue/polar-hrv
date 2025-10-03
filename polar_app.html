@@ -244,6 +244,35 @@
             document.getElementById('connectBtn').disabled = true;
         }
         
+        // Проверка поддержки Web Bluetooth API
+        if (!navigator.bluetooth) {
+            document.body.innerHTML = `
+                <div class="container">
+                    <h1>❌ Web Bluetooth не поддерживается</h1>
+                    <div class="status disconnected">
+                        <p><strong>Ваш браузер не поддерживает Web Bluetooth API.</strong></p>
+                        <p>Для подключения к Polar H10 необходимо использовать:</p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>✅ <strong>Google Chrome</strong> (рекомендуется)</li>
+                            <li>✅ <strong>Microsoft Edge</strong> (Chromium версия)</li>
+                            <li>✅ <strong>Opera</strong></li>
+                            <li>❌ Firefox (не поддерживается)</li>
+                            <li>❌ Safari (не поддерживается)</li>
+                        </ul>
+                        <p><strong>Решение:</strong></p>
+                        <ol style="margin: 10px 0; padding-left: 20px;">
+                            <li>Скачайте и установите <a href="https://www.google.com/chrome/" target="_blank" style="color: #667eea;">Google Chrome</a></li>
+                            <li>Откройте этот сайт в Chrome</li>
+                            <li>Попробуйте подключиться снова</li>
+                        </ol>
+                        <button onclick="location.reload()" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px;">
+                            🔄 Обновить страницу
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
         // Глобальные переменные
         let device = null;
         let hrCharacteristic = null;
