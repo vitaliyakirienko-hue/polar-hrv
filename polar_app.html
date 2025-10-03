@@ -178,6 +178,16 @@
             ⚠️ Используйте Chrome или Edge для подключения к устройству
         </div>
         
+        <div class="warning" id="connectionTips" style="display: block;">
+            <strong>💡 Советы для подключения:</strong>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>Убедитесь, что Polar H10 включен (красный светодиод мигает)</li>
+                <li>Отключите датчик от других приложений (Polar Flow, Strava и т.д.)</li>
+                <li>Держите датчик близко к устройству (в пределах 1 метра)</li>
+                <li>Попробуйте перезапустить датчик (выключить/включить)</li>
+            </ul>
+        </div>
+        
         <button id="connectBtn" class="primary" onclick="connectDevice()">
             🔗 Подключить Polar H10
         </button>
@@ -306,14 +316,30 @@
             try {
                 updateStatus('🔄 Поиск устройства...', 'connecting');
                 log('Запуск поиска Bluetooth устройств...');
+                log('Убедитесь, что Polar H10 включен и не подключен к другому устройству');
                 
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [
-                        { services: [HEART_RATE_SERVICE] },
-                        { namePrefix: 'Polar H10' }
-                    ],
-                    optionalServices: [HEART_RATE_SERVICE]
-                });
+                // Сначала попробуем найти по сервису
+                try {
+                    device = await navigator.bluetooth.requestDevice({
+                        filters: [
+                            { services: [HEART_RATE_SERVICE] }
+                        ],
+                        optionalServices: [HEART_RATE_SERVICE]
+                    });
+                    log(`Найдено устройство по сервису: ${device.name}`);
+                } catch (serviceError) {
+                    log('Поиск по сервису не дал результатов, пробуем по имени...');
+                    
+                    // Если не нашли по сервису, пробуем по имени
+                    device = await navigator.bluetooth.requestDevice({
+                        filters: [
+                            { namePrefix: 'Polar' },
+                            { namePrefix: 'H10' }
+                        ],
+                        optionalServices: [HEART_RATE_SERVICE]
+                    });
+                    log(`Найдено устройство по имени: ${device.name}`);
+                }
                 
                 log(`Найдено устройство: ${device.name}`);
                 
