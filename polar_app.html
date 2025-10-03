@@ -262,63 +262,38 @@
             const isTelegramWebApp = window.Telegram && window.Telegram.WebApp;
             
             if (isTelegramWebApp) {
-                // Если открыт в Telegram, принудительно открываем в Chrome
+                // Если открыт в Telegram, сразу показываем инструкции
                 document.body.innerHTML = `
                     <div class="container">
-                        <h1>🔄 Открытие в Google Chrome</h1>
-                        <div class="status connecting">
-                            <p><strong>Web App открывается в Google Chrome...</strong></p>
-                            <p>Пожалуйста, подождите...</p>
+                        <h1>📱 Откройте в Google Chrome</h1>
+                        <div class="status disconnected">
+                            <p><strong>Для подключения к Polar H10 необходимо открыть в Google Chrome.</strong></p>
+                            <p><strong>Инструкция:</strong></p>
+                            <ol style="margin: 10px 0; padding-left: 20px;">
+                                <li>Нажмите кнопку "📋 Скопировать ссылку" ниже</li>
+                                <li>Откройте Google Chrome на телефоне</li>
+                                <li>Вставьте ссылку в адресную строку</li>
+                                <li>Нажмите Enter</li>
+                            </ol>
+                            <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-size: 10px; color: #666; max-width: 100%; overflow-wrap: break-word;">
+                                ${window.location.href}
+                            </div>
+                            <button onclick="copyToClipboard('${window.location.href}')" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
+                                📋 Скопировать ссылку
+                            </button>
+                            <button onclick="openInChrome('${window.location.href}')" style="background: #00d4aa; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
+                                🚀 Открыть в Chrome
+                            </button>
+                            <button onclick="window.location.href='${window.location.href}'" style="background: #ff6b6b; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
+                                🔄 Попробовать снова
+                            </button>
+                            <p style="margin-top: 20px; font-size: 12px; color: #666;">
+                                <strong>Альтернативный способ:</strong><br>
+                                Скопируйте ссылку выше и откройте в Chrome вручную
+                            </p>
                         </div>
                     </div>
                 `;
-                
-                // Пытаемся открыть в Chrome
-                setTimeout(() => {
-                    // Попробуем разные способы открытия в Chrome
-                    const currentUrl = window.location.href;
-                    
-                    // Способ 1: Chrome URL scheme
-                    try {
-                        window.location.href = 'googlechrome://navigate?url=' + encodeURIComponent(currentUrl);
-                    } catch (e) {
-                        // Способ 2: Прямое открытие
-                        try {
-                            window.open(currentUrl, '_blank');
-                        } catch (e2) {
-                            // Способ 3: Fallback
-                            log('Не удалось открыть в Chrome автоматически');
-                        }
-                    }
-                }, 1000);
-                
-                // Если не получилось открыть в Chrome, показываем инструкции
-                setTimeout(() => {
-                    document.body.innerHTML = `
-                        <div class="container">
-                            <h1>📱 Откройте в Google Chrome</h1>
-                            <div class="status disconnected">
-                                <p><strong>Для подключения к Polar H10 необходимо открыть в Google Chrome.</strong></p>
-                                <p><strong>Инструкция:</strong></p>
-                                <ol style="margin: 10px 0; padding-left: 20px;">
-                                    <li>Нажмите кнопку "📋 Скопировать ссылку" ниже</li>
-                                    <li>Откройте Google Chrome на телефоне</li>
-                                    <li>Вставьте ссылку в адресную строку</li>
-                                    <li>Нажмите Enter</li>
-                                </ol>
-                                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-size: 10px; color: #666; max-width: 100%; overflow-wrap: break-word;">
-                                    ${window.location.href}
-                                </div>
-                                <button onclick="copyToClipboard('${window.location.href}')" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
-                                    📋 Скопировать ссылку
-                                </button>
-                                <button onclick="window.location.href='${window.location.href}'" style="background: #00d4aa; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
-                                    🔄 Попробовать снова
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }, 3000);
             } else {
                 // Обычная проверка браузера
                 document.body.innerHTML = `
@@ -384,6 +359,26 @@
             } catch (err) {
                 console.error('Ошибка fallback копирования:', err);
                 alert('❌ Не удалось скопировать ссылку автоматически.\n\nСкопируйте ссылку вручную из поля выше.');
+            }
+        }
+        
+        function openInChrome(url) {
+            // Попробуем разные способы открытия в Chrome
+            try {
+                // Способ 1: Chrome URL scheme
+                window.location.href = 'googlechrome://navigate?url=' + encodeURIComponent(url);
+            } catch (e) {
+                try {
+                    // Способ 2: Прямое открытие
+                    window.open(url, '_blank');
+                } catch (e2) {
+                    try {
+                        // Способ 3: Fallback
+                        window.location.href = url;
+                    } catch (e3) {
+                        alert('❌ Не удалось открыть в Chrome автоматически.\n\nСкопируйте ссылку и откройте в Chrome вручную.');
+                    }
+                }
             }
         }
 
