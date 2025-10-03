@@ -288,11 +288,14 @@
                                 <p><strong>Для подключения к Polar H10 необходимо открыть в Google Chrome.</strong></p>
                                 <p><strong>Инструкция:</strong></p>
                                 <ol style="margin: 10px 0; padding-left: 20px;">
-                                    <li>Скопируйте ссылку: <strong>${window.location.href}</strong></li>
+                                    <li>Нажмите кнопку "📋 Скопировать ссылку" ниже</li>
                                     <li>Откройте Google Chrome на телефоне</li>
                                     <li>Вставьте ссылку в адресную строку</li>
                                     <li>Нажмите Enter</li>
                                 </ol>
+                                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-size: 12px; color: #666;">
+                                    ${window.location.href}
+                                </div>
                                 <button onclick="copyToClipboard('${window.location.href}')" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
                                     📋 Скопировать ссылку
                                 </button>
@@ -480,9 +483,12 @@
                 document.getElementById('sessionId').textContent = sessionId;
                 
                 log(`Начата сессия: ${sessionId}`);
+                log('Подключение к характеристике Heart Rate...');
                 
                 await hrCharacteristic.startNotifications();
+                log('Уведомления Heart Rate активированы');
                 hrCharacteristic.addEventListener('characteristicvaluechanged', handleHRData);
+                log('Обработчик данных Heart Rate установлен');
                 
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('stopBtn').style.display = 'block';
@@ -491,6 +497,8 @@
                 measurementInterval = setInterval(updateDuration, 1000);
                 
                 log('Начат сбор данных HRV');
+                log('Убедитесь, что датчик плотно прилегает к телу');
+                log('Держите датчик неподвижно для лучшего сигнала');
                 
             } catch (error) {
                 log(`Ошибка начала замера: ${error.message}`);
@@ -523,6 +531,7 @@
             
             if (rrPresent) {
                 const rrCount = (value.byteLength - offset) / 2;
+                log(`Получено ${rrCount} RR интервалов`);
                 
                 for (let i = 0; i < rrCount; i++) {
                     const rr = value.getUint16(offset, true);
@@ -534,6 +543,9 @@
                     if (rrMs > 300 && rrMs < 2000) { // Фильтр аномальных значений
                         rrIntervals.push(rrMs);
                         dataPoints++;
+                        log(`Добавлен RR интервал: ${rrMs}мс (всего: ${rrIntervals.length})`);
+                    } else {
+                        log(`Отфильтрован RR интервал: ${rrMs}мс (вне диапазона)`);
                     }
                 }
                 
@@ -541,6 +553,8 @@
                 if (rrIntervals.length >= 10) {
                     calculateMetrics();
                 }
+            } else {
+                log('RR интервалы не найдены в данных');
             }
             
             document.getElementById('dataPoints').textContent = dataPoints;
