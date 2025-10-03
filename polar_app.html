@@ -387,6 +387,50 @@
         const HEART_RATE_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb';
         const HEART_RATE_MEASUREMENT = '00002a37-0000-1000-8000-00805f9b34fb';
         
+        // Функции для определения сервисов и характеристик
+        function getServiceName(uuid) {
+            const services = {
+                '0000180d-0000-1000-8000-00805f9b34fb': 'Heart Rate Service',
+                '0000180a-0000-1000-8000-00805f9b34fb': 'Device Information Service',
+                '0000180f-0000-1000-8000-00805f9b34fb': 'Battery Service',
+                '00001801-0000-1000-8000-00805f9b34fb': 'Generic Attribute Service',
+                '00001800-0000-1000-8000-00805f9b34fb': 'Generic Access Service'
+            };
+            return services[uuid] || 'Unknown Service';
+        }
+        
+        function getCharacteristicName(uuid) {
+            const characteristics = {
+                '00002a37-0000-1000-8000-00805f9b34fb': 'Heart Rate Measurement',
+                '00002a38-0000-1000-8000-00805f9b34fb': 'Body Sensor Location',
+                '00002a39-0000-1000-8000-00805f9b34fb': 'Heart Rate Control Point',
+                '00002a29-0000-1000-8000-00805f9b34fb': 'Manufacturer Name String',
+                '00002a24-0000-1000-8000-00805f9b34fb': 'Model Number String',
+                '00002a25-0000-1000-8000-00805f9b34fb': 'Serial Number String',
+                '00002a26-0000-1000-8000-00805f9b34fb': 'Firmware Revision String',
+                '00002a27-0000-1000-8000-00805f9b34fb': 'Hardware Revision String',
+                '00002a28-0000-1000-8000-00805f9b34fb': 'Software Revision String',
+                '00002a23-0000-1000-8000-00805f9b34fb': 'System ID',
+                '00002a2a-0000-1000-8000-00805f9b34fb': 'IEEE 11073-20601 Regulatory Certification Data List',
+                '00002a50-0000-1000-8000-00805f9b34fb': 'PnP ID'
+            };
+            return characteristics[uuid] || 'Unknown Characteristic';
+        }
+        
+        function getCharacteristicProperties(properties) {
+            const props = [];
+            if (properties.broadcast) props.push('Broadcast');
+            if (properties.read) props.push('Read');
+            if (properties.writeWithoutResponse) props.push('WriteWithoutResponse');
+            if (properties.write) props.push('Write');
+            if (properties.notify) props.push('Notify');
+            if (properties.indicate) props.push('Indicate');
+            if (properties.authenticatedSignedWrites) props.push('AuthenticatedSignedWrites');
+            if (properties.reliableWrite) props.push('ReliableWrite');
+            if (properties.writableAuxiliaries) props.push('WritableAuxiliaries');
+            return props.join(', ') || 'None';
+        }
+        
         function log(message) {
             const logDiv = document.getElementById('log');
             const entry = document.createElement('div');
@@ -466,11 +510,54 @@
                 const server = await device.gatt.connect();
                 log('Подключено к GATT серверу');
                 
+                // Получаем все доступные сервисы
+                const services = await server.getPrimaryServices();
+                log(`Найдено ${services.length} сервисов:`);
+                for (const svc of services) {
+                    log(`  - ${svc.uuid} (${getServiceName(svc.uuid)})`);
+                }
+                
                 const service = await server.getPrimaryService(HEART_RATE_SERVICE);
                 log('Получен сервис Heart Rate');
                 
+                // Получаем все характеристики сервиса
+                const characteristics = await service.getCharacteristics();
+                log(`Найдено ${characteristics.length} характеристик в Heart Rate сервисе:`);
+                for (const char of characteristics) {
+                    log(`  - ${char.uuid} (${getCharacteristicName(char.uuid)})`);
+                    log(`    Свойства: ${getCharacteristicProperties(char.properties)}`);
+                }
+                
                 hrCharacteristic = await service.getCharacteristic(HEART_RATE_MEASUREMENT);
                 log('Получена характеристика HR Measurement');
+                
+                // Попробуем получить дополнительную информацию из Device Information Service
+                try {
+                    const deviceInfoService = await server.getPrimaryService('0000180a-0000-1000-8000-00805f9b34fb');
+                    log('Получен сервис Device Information');
+                    
+                    // Попробуем получить информацию о производителе
+                    try {
+                        const manufacturerChar = await deviceInfoService.getCharacteristic('00002a29-0000-1000-8000-00805f9b34fb');
+                        const manufacturer = await manufacturerChar.readValue();
+                        const manufacturerName = new TextDecoder().decode(manufacturer);
+                        log(`Производитель: ${manufacturerName}`);
+                    } catch (e) {
+                        log('Не удалось получить информацию о производителе');
+                    }
+                    
+                    // Попробуем получить модель
+                    try {
+                        const modelChar = await deviceInfoService.getCharacteristic('00002a24-0000-1000-8000-00805f9b34fb');
+                        const model = await modelChar.readValue();
+                        const modelName = new TextDecoder().decode(model);
+                        log(`Модель: ${modelName}`);
+                    } catch (e) {
+                        log('Не удалось получить информацию о модели');
+                    }
+                } catch (e) {
+                    log('Device Information Service недоступен');
+                }
                 
                 updateStatus('✅ Устройство подключено', 'connected');
                 document.getElementById('startBtn').disabled = false;
