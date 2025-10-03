@@ -293,7 +293,7 @@
                                     <li>Вставьте ссылку в адресную строку</li>
                                     <li>Нажмите Enter</li>
                                 </ol>
-                                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-size: 12px; color: #666;">
+                                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-size: 10px; color: #666; max-width: 100%; overflow-wrap: break-word;">
                                     ${window.location.href}
                                 </div>
                                 <button onclick="copyToClipboard('${window.location.href}')" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px 5px;">
@@ -340,17 +340,37 @@
         function copyToClipboard(text) {
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(text).then(() => {
-                    alert('Ссылка скопирована в буфер обмена!');
+                    alert('✅ Ссылка скопирована в буфер обмена!\n\nТеперь откройте Google Chrome на телефоне и вставьте ссылку в адресную строку.');
+                }).catch(err => {
+                    console.error('Ошибка копирования:', err);
+                    fallbackCopy(text);
                 });
             } else {
-                // Fallback для старых браузеров
+                fallbackCopy(text);
+            }
+        }
+        
+        function fallbackCopy(text) {
+            try {
                 const textArea = document.createElement('textarea');
                 textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
                 document.body.appendChild(textArea);
+                textArea.focus();
                 textArea.select();
-                document.execCommand('copy');
+                const successful = document.execCommand('copy');
                 document.body.removeChild(textArea);
-                alert('Ссылка скопирована в буфер обмена!');
+                
+                if (successful) {
+                    alert('✅ Ссылка скопирована в буфер обмена!\n\nТеперь откройте Google Chrome на телефоне и вставьте ссылку в адресную строку.');
+                } else {
+                    alert('❌ Не удалось скопировать ссылку автоматически.\n\nСкопируйте ссылку вручную из поля выше.');
+                }
+            } catch (err) {
+                console.error('Ошибка fallback копирования:', err);
+                alert('❌ Не удалось скопировать ссылку автоматически.\n\nСкопируйте ссылку вручную из поля выше.');
             }
         }
 
