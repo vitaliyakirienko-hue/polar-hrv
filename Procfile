@@ -1,1 +1,1 @@
-web: python railway_hrv_bot.py
+web: python -m bot.main
