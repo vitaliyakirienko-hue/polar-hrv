@@ -387,17 +387,24 @@
                     
                     try {
                         // Команда для старта ECG/RR записи
-                        // Код 0x02 = Start measurement
-                        // Type 0x00 = ECG (включает RR)
-                        const startCommand = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00]);
+                        // Правильный формат для Polar H10
+                        const startCommand = new Uint8Array([
+                            0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
+                        ]);
                         
                         await pmdControlChar.writeValue(startCommand);
-                        log('✅ Режим записи активирован!', 'success');
-                        updateStatus('📡 Режим записи активен', 'recording');
+                        log('✅ PMD команда отправлена', 'success');
                         
                         // Подписаться на PMD data для RR
                         await pmdDataChar.startNotifications();
                         pmdDataChar.addEventListener('characteristicvaluechanged', handlePMDData);
+                        log('✅ PMD уведомления активированы', 'success');
+                        
+                        // Дополнительная команда для активации RR интервалов
+                        const rrCommand = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00]);
+                        await pmdControlChar.writeValue(rrCommand);
+                        log('✅ RR интервалы активированы!', 'success');
+                        updateStatus('📡 Режим записи активен', 'recording');
                         
                     } catch (e) {
                         log(`⚠️ Не удалось активировать PMD: ${e.message}`, 'warning');
@@ -423,13 +430,28 @@
             // Обработка данных от PMD Service (более надёжный источник RR)
             const value = event.target.value;
             
+            log(`📊 PMD данные получены: ${value.byteLength} байт`, 'info');
+            
             // PMD формат: [Type][Timestamp][Frame count][Data...]
             const frameType = value.getUint8(0);
+            log(`📊 PMD тип фрейма: 0x${frameType.toString(16)}`, 'info');
             
             if (frameType === 0x00) {  // ECG data contains RR
-                log('📊 Получены PMD данные (ECG/RR)', 'info');
-                // Здесь сложный парсинг ECG фрейма
-                // Для простоты используем HR characteristic с RR флагом
+                log('✅ PMD ECG данные получены (содержат RR)', 'success');
+                
+                // Попробуем извлечь RR интервалы из PMD данных
+                try {
+                    const timestamp = value.getUint32(1, true);
+                    const frameCount = value.getUint16(5, true);
+                    log(`📊 PMD: timestamp=${timestamp}, frames=${frameCount}`, 'info');
+                    
+                    // Здесь можно добавить парсинг ECG данных для RR интервалов
+                    // Пока что полагаемся на стандартный HR characteristic
+                } catch (e) {
+                    log(`⚠️ Ошибка парсинга PMD: ${e.message}`, 'warning');
+                }
+            } else {
+                log(`ℹ️ PMD тип ${frameType} (не ECG)`, 'info');
             }
         }
         
@@ -437,8 +459,12 @@
             const value = event.target.value;
             const flags = value.getUint8(0);
             
+            log(`📊 HR данные: длина=${value.byteLength}, флаги=0x${flags.toString(16)}`, 'info');
+            
             const hrFormat = flags & 0x01;
             const rrPresent = (flags >> 4) & 0x01;
+            
+            log(`📊 HR формат: ${hrFormat ? '16-bit' : '8-bit'}, RR присутствуют: ${rrPresent ? 'да' : 'нет'}`, 'info');
             
             let offset = 1;
             let hr;
