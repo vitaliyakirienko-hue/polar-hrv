@@ -153,10 +153,10 @@ class PolarFlowIntegration:
 async def main():
     """Пример использования интеграции"""
     
-    # Инициализация
+    # Инициализация с реальными ключами
     polar = PolarFlowIntegration(
-        client_id="your_client_id",
-        client_secret="your_client_secret"
+        client_id="d7b638fa-de73-45e7-8011-7adec4ce8092",
+        client_secret="38f243a0-67a5-4557-aee8-886ef7d5ae55"
     )
     
     # Добавление пользователей
