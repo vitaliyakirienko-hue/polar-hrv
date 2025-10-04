@@ -22,6 +22,7 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
         h1 { color: #667eea; margin-bottom: 20px; }
+        .info { background: #e3f2fd; padding: 12px; border-radius: 8px; margin: 15px 0; font-size: 13px; }
         .status {
             padding: 15px;
             border-radius: 10px;
@@ -72,25 +73,33 @@
         .log-entry { margin: 2px 0; padding: 2px 0; }
         .log-entry.success { color: #55efc4; }
         .log-entry.error { color: #ff7675; }
+        .log-entry.warn { color: #fdcb6e; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Polar HRV Monitor</h1>
         
+        <div class="info">
+            <strong>Инструкция:</strong><br>
+            1. Закройте Polar Beat/Flow/Kubios<br>
+            2. Подключите датчик<br>
+            3. Начните замер - RR должны пойти сразу
+        </div>
+        
         <div id="status" class="status disconnected">
-            Устройство не подключено
+            Не подключено
         </div>
         
         <button id="connectBtn" class="primary" onclick="connect()">
-            Подключить Polar H10
+            Подключить Polar
         </button>
         
-        <button id="startBtn" class="primary" onclick="startStream()" disabled>
-            Начать стрим RR/HR
+        <button id="startBtn" class="primary" onclick="start()" disabled>
+            Начать замер
         </button>
         
-        <button id="stopBtn" class="danger" onclick="stopStream()" style="display:none">
+        <button id="stopBtn" class="danger" onclick="stop()" style="display:none">
             Остановить
         </button>
         
@@ -120,18 +129,10 @@
         let tg = window.Telegram?.WebApp;
         if (tg) { tg.ready(); tg.expand(); }
         
-        // Polar H10 UUIDs
-        const HR_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb';
-        const HR_MEASUREMENT = '00002a37-0000-1000-8000-00805f9b34fb';
-        const PMD_SERVICE = 'fb005c80-02e7-f387-1cad-8acd2d8df0c8';
-        const PMD_CONTROL = 'fb005c81-02e7-f387-1cad-8acd2d8df0c8';
-        const PMD_DATA = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
-        
-        let device, server;
-        let hrChar, pmdCtrl, pmdData;
+        let device, hrChar;
         let rrData = [];
         let sessionId, startTime;
-        let streamingRR = false;
+        let lastHRTime = 0;
         
         function log(msg, type = 'info') {
             const div = document.getElementById('log');
@@ -144,36 +145,26 @@
         
         async function connect() {
             try {
-                log('Поиск Polar устройства...');
+                log('Поиск устройства...');
                 
                 device = await navigator.bluetooth.requestDevice({
-                    filters: [
-                        { services: [HR_SERVICE] }
-                    ],
-                    optionalServices: [HR_SERVICE, PMD_SERVICE]
+                    filters: [{ services: ['heart_rate'] }],
+                    optionalServices: ['heart_rate']
                 });
                 
                 log(`Найдено: ${device.name}`, 'success');
                 
-                server = await device.gatt.connect();
-                log('GATT подключен', 'success');
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('heart_rate');
+                hrChar = await service.getCharacteristic('heart_rate_measurement');
                 
-                // HR Service
-                const hrService = await server.getPrimaryService(HR_SERVICE);
-                hrChar = await hrService.getCharacteristic(HR_MEASUREMENT);
-                log('HR сервис готов', 'success');
+                log('HR characteristic получен', 'success');
                 
-                // PMD Service
-                try {
-                    const pmdService = await server.getPrimaryService(PMD_SERVICE);
-                    pmdCtrl = await pmdService.getCharacteristic(PMD_CONTROL);
-                    pmdData = await pmdService.getCharacteristic(PMD_DATA);
-                    log('PMD сервис готов (RR стрим доступен)', 'success');
-                } catch (e) {
-                    log('PMD недоступен, будет базовый HR', 'error');
-                }
+                // Проверить свойства
+                const props = hrChar.properties;
+                log(`Свойства: notify=${props.notify}, read=${props.read}`, 'info');
                 
-                document.getElementById('status').textContent = 'Подключено к ' + device.name;
+                document.getElementById('status').textContent = 'Подключено';
                 document.getElementById('status').className = 'status connected';
                 document.getElementById('startBtn').disabled = false;
                 document.getElementById('connectBtn').disabled = true;
@@ -183,134 +174,130 @@
             }
         }
         
-        async function startStream() {
+        async function start() {
             sessionId = `s${Date.now()}`;
             startTime = Date.now();
             rrData = [];
+            lastHRTime = 0;
             
             document.getElementById('metrics').style.display = 'grid';
-            log('Запуск стрима...');
+            log('Запуск замера...');
             
-            // Метод 1: PMD стрим (самый надёжный для RR)
-            if (pmdCtrl && pmdData) {
-                try {
-                    log('Активация PMD HR стрима...');
-                    
-                    // Команда: Start HR measurement stream
-                    // Format: [0x02 (REQUEST), 0x00 (HR type), settings...]
-                    const startCmd = new Uint8Array([
-                        0x02,  // REQUEST_START
-                        0x00,  // HR measurement type
-                        0x00, 0x01, // Settings length
-                        0x82, 0x00, // Sample rate (130 Hz)
-                        0x01, 0x01, // Resolution
-                        0x0E, 0x00  // Range
-                    ]);
-                    
-                    await pmdCtrl.writeValue(startCmd);
-                    log('PMD команда отправлена', 'success');
-                    
-                    // Подписка на PMD data
-                    await pmdData.startNotifications();
-                    pmdData.addEventListener('characteristicvaluechanged', onPMDData);
-                    log('PMD стрим активирован', 'success');
-                    
-                    streamingRR = true;
-                    
-                } catch (e) {
-                    log(`PMD ошибка: ${e.message}`, 'error');
-                    log('Переключение на HR характеристику...');
-                    streamingRR = false;
-                }
-            }
-            
-            // Метод 2: Стандартный HR (всегда включаем как запасной)
-            await hrChar.startNotifications();
-            hrChar.addEventListener('characteristicvaluechanged', onHRData);
-            log('HR уведомления активны', 'success');
-            
-            document.getElementById('status').textContent = streamingRR ? 'PMD стрим активен' : 'HR мониторинг';
-            document.getElementById('status').className = 'status streaming';
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
-        }
-        
-        function onPMDData(event) {
-            // PMD формат более сложный, содержит ECG/RR данные
-            const value = event.target.value;
-            const type = value.getUint8(0);
-            
-            log(`PMD пакет получен (тип: ${type})`, 'success');
-            
-            // Type 0x00 = HR data with RR
-            if (type === 0x00) {
-                // Пропускаем header (9 байт) и читаем HR samples
-                let offset = 10;
+            try {
+                // Включить уведомления
+                await hrChar.startNotifications();
+                hrChar.addEventListener('characteristicvaluechanged', onData);
                 
-                while (offset + 3 < value.byteLength) {
-                    const hr = value.getUint8(offset);
-                    const rrPresent = value.getUint8(offset + 1);
-                    
-                    if (rrPresent > 0) {
-                        const rr = value.getUint16(offset + 2, true);
-                        const rrMs = Math.round((rr / 1024) * 1000);
-                        
-                        if (rrMs > 300 && rrMs < 2000) {
-                            rrData.push(rrMs);
-                            document.getElementById('rrCount').textContent = rrData.length;
-                            document.getElementById('hr').textContent = hr;
-                            
-                            if (rrData.length >= 10) calc();
-                            
-                            log(`RR: ${rrMs}ms, HR: ${hr}`, 'success');
-                        }
+                log('Уведомления включены', 'success');
+                log('Ожидание данных от Polar H10...', 'info');
+                
+                document.getElementById('status').textContent = 'Запись данных';
+                document.getElementById('status').className = 'status streaming';
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'block';
+                
+                // Проверка через 5 секунд
+                setTimeout(() => {
+                    if (rrData.length === 0) {
+                        log('RR не получены. Возможные причины:', 'warn');
+                        log('1. Датчик используется другим приложением', 'warn');
+                        log('2. Датчик нужно перезапустить (снять/надеть)', 'warn');
+                        log('3. Прошивка H10 старая (обновите через Polar Flow)', 'warn');
                     }
-                    
-                    offset += 4;
-                }
+                }, 5000);
+                
+            } catch (e) {
+                log(`Ошибка старта: ${e.message}`, 'error');
             }
         }
         
-        function onHRData(event) {
+        function onData(event) {
+            const now = Date.now();
+            if (now - lastHRTime < 100) return; // Дебаунс
+            lastHRTime = now;
+            
             const v = event.target.value;
             const flags = v.getUint8(0);
             
+            // Логировать RAW данные первые 3 раза
+            if (rrData.length < 3) {
+                let hex = '';
+                for (let i = 0; i < Math.min(v.byteLength, 20); i++) {
+                    hex += v.getUint8(i).toString(16).padStart(2, '0') + ' ';
+                }
+                log(`RAW: ${hex}`, 'info');
+                log(`Флаги: ${flags.toString(2).padStart(8, '0')} (${flags})`, 'info');
+            }
+            
             let pos = 1;
-            const hr = (flags & 1) ? v.getUint16(pos, true) : v.getUint8(pos);
-            pos += (flags & 1) ? 2 : 1;
+            
+            // HR значение
+            const hrIs16bit = flags & 0x01;
+            const hr = hrIs16bit ? v.getUint16(pos, true) : v.getUint8(pos);
+            pos += hrIs16bit ? 2 : 1;
             
             document.getElementById('hr').textContent = hr;
             
-            if (flags & 0x08) pos += 2; // Skip Energy Expended
+            // Sensor Contact
+            const contactStatus = (flags >> 1) & 0x03;
+            if (contactStatus !== 3 && rrData.length < 3) {
+                log('Контакт с телом: ' + (contactStatus === 3 ? 'есть' : 'нет'), 'warn');
+            }
             
-            // RR intervals
-            if (flags & 0x10) {
+            // Energy Expended
+            if (flags & 0x08) {
+                pos += 2;
+            }
+            
+            // RR Intervals
+            const rrPresent = (flags >> 4) & 0x01;
+            
+            if (rrPresent) {
                 const remaining = v.byteLength - pos;
                 const count = Math.floor(remaining / 2);
                 
                 if (count > 0) {
-                    log(`HR: ${count} RR интервалов получено`, 'success');
+                    log(`Получено ${count} RR интервалов!`, 'success');
                 }
                 
                 for (let i = 0; i < count; i++) {
                     const rr = v.getUint16(pos, true);
                     pos += 2;
-                    const ms = Math.round((rr / 1024) * 1000);
                     
-                    if (ms > 300 && ms < 2000) {
-                        rrData.push(ms);
-                        document.getElementById('rrCount').textContent = rrData.length;
+                    // Конвертация: 1/1024 секунды -> миллисекунды
+                    const rrMs = (rr * 1000) / 1024;
+                    
+                    if (rrMs >= 300 && rrMs <= 2000) {
+                        rrData.push(rrMs);
                         
-                        if (rrData.length >= 10) calc();
+                        const total = rrData.length;
+                        document.getElementById('rrCount').textContent = total;
+                        
+                        if (total === 1) {
+                            log(`Первый RR: ${rrMs.toFixed(0)}ms`, 'success');
+                        }
+                        
+                        if (total >= 10) {
+                            calc();
+                        }
+                    } else {
+                        log(`RR вне диапазона: ${rrMs.toFixed(0)}ms`, 'warn');
                     }
+                }
+            } else {
+                if (rrData.length === 0) {
+                    log('RR флаг = 0 (датчик не отдаёт RR)', 'warn');
                 }
             }
         }
         
         function calc() {
             const recent = rrData.slice(-30);
+            if (recent.length < 10) return;
+            
             const mean = recent.reduce((a,b)=>a+b,0) / recent.length;
             
+            // RMSSD
             let sumSq = 0;
             for (let i = 1; i < recent.length; i++) {
                 const d = recent[i] - recent[i-1];
@@ -318,12 +305,14 @@
             }
             const rmssd = Math.sqrt(sumSq / (recent.length-1));
             
+            // SDNN
             const variance = recent.reduce((a,v) => a + Math.pow(v-mean,2), 0) / recent.length;
             const sdnn = Math.sqrt(variance);
             
             document.getElementById('rmssd').textContent = Math.round(rmssd);
             document.getElementById('sdnn').textContent = Math.round(sdnn);
             
+            // Отправка в бот
             if (tg && rrData.length % 50 === 0) {
                 tg.sendData(JSON.stringify({
                     sessionId,
@@ -333,42 +322,28 @@
                     sdnn: Math.round(sdnn),
                     rrIntervals: recent
                 }));
+                log('Данные отправлены в бот', 'success');
             }
         }
         
-        async function stopStream() {
-            if (pmdCtrl && streamingRR) {
-                try {
-                    // Stop PMD stream
-                    const stopCmd = new Uint8Array([0x03, 0x00]);
-                    await pmdCtrl.writeValue(stopCmd);
-                    log('PMD стрим остановлен');
-                } catch (e) {
-                    log(`PMD stop ошибка: ${e.message}`, 'error');
-                }
-            }
-            
-            if (pmdData) {
-                try {
-                    await pmdData.stopNotifications();
-                    pmdData.removeEventListener('characteristicvaluechanged', onPMDData);
-                } catch (e) {}
-            }
-            
+        async function stop() {
             if (hrChar) {
                 await hrChar.stopNotifications();
-                hrChar.removeEventListener('characteristicvaluechanged', onHRData);
+                hrChar.removeEventListener('characteristicvaluechanged', onData);
             }
             
+            // Финальная отправка
             if (tg && rrData.length > 0) {
                 const recent = rrData.slice(-30);
                 const mean = recent.reduce((a,b)=>a+b,0) / recent.length;
+                
                 let sumSq = 0;
                 for (let i = 1; i < recent.length; i++) {
                     const d = recent[i] - recent[i-1];
                     sumSq += d*d;
                 }
                 const rmssd = Math.sqrt(sumSq / (recent.length-1));
+                
                 const variance = recent.reduce((a,v) => a + Math.pow(v-mean,2), 0) / recent.length;
                 const sdnn = Math.sqrt(variance);
                 
@@ -389,7 +364,7 @@
             document.getElementById('status').textContent = 'Подключено';
             document.getElementById('status').className = 'status connected';
             
-            log(`Сессия завершена. RR точек: ${rrData.length}`, 'success');
+            log(`Завершено. Всего RR: ${rrData.length}`, 'success');
         }
     </script>
 </body>
