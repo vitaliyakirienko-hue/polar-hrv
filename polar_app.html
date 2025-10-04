@@ -83,8 +83,16 @@
         <div class="info">
             <strong>Инструкция:</strong><br>
             1. Закройте Polar Beat/Flow/Kubios<br>
-            2. Подключите датчик<br>
-            3. Начните замер - RR должны пойти сразу
+            2. <strong>ВАЖНО:</strong> Отключите Huawei часы от Bluetooth<br>
+            3. Подключите датчик (H10/H9/Verity Sense/OH1)<br>
+            4. Начните замер - RR должны пойти сразу
+        </div>
+        
+        <div class="info" style="background: #fff3cd; border: 1px solid #ffeaa7;">
+            <strong>⚠️ Huawei часы рядом:</strong><br>
+            • Отключите Bluetooth на часах<br>
+            • Или отойдите на 3+ метра от часов<br>
+            • Huawei часы могут создавать помехи Bluetooth
         </div>
         
         <div id="status" class="status disconnected">
@@ -145,14 +153,63 @@
         
         async function connect() {
             try {
-                log('Поиск устройства...');
+                log('Поиск Polar устройств...');
+                log('Поддерживаемые: H10, H9, Verity Sense, OH1', 'info');
                 
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: ['heart_rate'] }],
-                    optionalServices: ['heart_rate']
-                });
+                // Попробуем разные способы поиска
+                let deviceFound = false;
                 
-                log(`Найдено: ${device.name}`, 'success');
+                // Способ 1: Поиск по сервису Heart Rate
+                try {
+                    device = await navigator.bluetooth.requestDevice({
+                        filters: [{ services: ['heart_rate'] }],
+                        optionalServices: ['heart_rate']
+                    });
+                    log(`✅ Найдено по сервису: ${device.name}`, 'success');
+                    deviceFound = true;
+                } catch (serviceError) {
+                    log('Поиск по сервису не дал результатов, пробуем по имени...', 'warn');
+                }
+                
+                // Способ 2: Поиск по имени (если первый способ не сработал)
+                if (!deviceFound) {
+                    try {
+                        device = await navigator.bluetooth.requestDevice({
+                            filters: [
+                                { namePrefix: 'Polar H10' },
+                                { namePrefix: 'Polar H9' },
+                                { namePrefix: 'Polar Verity' },
+                                { namePrefix: 'Polar OH1' }
+                            ],
+                            optionalServices: ['heart_rate']
+                        });
+                        log(`✅ Найдено по имени: ${device.name}`, 'success');
+                        deviceFound = true;
+                    } catch (nameError) {
+                        log('Поиск по имени не дал результатов, пробуем без фильтров...', 'warn');
+                    }
+                }
+                
+                // Способ 3: Поиск без фильтров (покажет все устройства)
+                if (!deviceFound) {
+                    try {
+                        device = await navigator.bluetooth.requestDevice({
+                            acceptAllDevices: true,
+                            optionalServices: ['heart_rate']
+                        });
+                        log(`✅ Найдено без фильтров: ${device.name}`, 'success');
+                        deviceFound = true;
+                    } catch (noFilterError) {
+                        log('Поиск без фильтров не дал результатов', 'error');
+                        throw new Error('Не удалось найти ни одного Bluetooth устройства');
+                    }
+                }
+                
+                if (!deviceFound) {
+                    throw new Error('Не удалось найти устройство');
+                }
+                
+                log(`✅ Устройство найдено: ${device.name}`, 'success');
                 
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService('heart_rate');
